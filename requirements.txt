@@ -1,0 +1,25 @@
+# Python 3.11+ required
+# StockTrend Dashboard Dependencies
+
+# Core Framework
+streamlit>=1.28.0
+
+# Data Processing & Analysis
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Data Fetching
+yfinance>=0.2.32
+
+# Visualization
+plotly>=5.0.0
+
+# Caching & Scheduling
+schedule>=1.2.0
+
+# Additional Utilities
+python-dateutil>=2.8.2
+
+# Optional: For production deployment
+gunicorn==21.2.0
+
