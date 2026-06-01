@@ -13,14 +13,10 @@ import traceback
 # Import custom modules
 from src.data import get_stock_data, parse_ticker_input, validate_ticker
 from src.screener import (
-    calculate_returns,
-    is_down_n_days,
-    calculate_drawdown,
+    is_mostly_down,
     screen_stocks,
     get_daily_returns_table,
     calculate_statistics,
-    get_current_price,
-    get_price_n_days_ago
 )
 from src.utils import (
     create_price_chart,
@@ -87,7 +83,7 @@ def render_sidebar() -> Tuple[List[str], int, float]:
     Returns
     -------
     tuple
-        (list of tickers, n_days, min_drawdown, run_button)
+        (list of tickers, n_days, min_change_pct, run_button)
     """
     st.sidebar.title("📊 StockTrend Dashboard")
     st.sidebar.markdown("---")
@@ -143,13 +139,13 @@ def render_sidebar() -> Tuple[List[str], int, float]:
         help="Jumlah hari berturut-turut yang dicari untuk penurunan"
     )
     
-    min_drawdown = st.sidebar.slider(
-        "📉 Minimal Drawdown %",
+    min_change_pct = st.sidebar.slider(
+        "📉 Minimal Penurunan (%)",
         min_value=0.0,
-        max_value=100.0,
-        value=0.0,
+        max_value=50.0,
+        value=5.0,
         step=0.5,
-        help="Filter saham dengan drawdown minimum (dalam persen)"
+        help="Minimal penurunan harga dibanding N hari lalu"
     )
     
     st.sidebar.markdown("---")
@@ -188,7 +184,7 @@ def render_sidebar() -> Tuple[List[str], int, float]:
         
         **Parameter Screening:**
         - Hari Turun: Cari saham turun N hari berturut-turut
-        - Drawdown: Filter berdasarkan persentase penurunan
+        - Minimal Penurunan: Filter berdasarkan persentase penurunan
         
         **Data Source:**
         - Yahoo Finance (real-time dengan lag ~15-20 menit)
@@ -212,7 +208,7 @@ def render_sidebar() -> Tuple[List[str], int, float]:
         Build with ❤️ for Indonesian Investors
         """)
     
-    return valid_tickers, n_days, min_drawdown, run_button
+    return valid_tickers, n_days, min_change_pct, run_button
 
 
 # ============================================================================
@@ -230,7 +226,7 @@ def render_dashboard():
     st.markdown("---")
     
     # Get sidebar inputs
-    valid_tickers, n_days, min_drawdown, run_button = render_sidebar()
+    valid_tickers, n_days, min_change_pct, run_button = render_sidebar()
     
     # Initialize session state
     if 'screening_results' not in st.session_state:
@@ -272,11 +268,56 @@ def render_dashboard():
                     progress_bar.empty()
                     status_text.empty()
                     
-                    # Screen stocks
+                    progress_bar.empty()
+                    status_text.empty()
+                    
+                    # ==================================================
+                    # 🛠️ MULAI KODE DEBUGGING YFINANCE
+                    # ==================================================
+                    st.markdown("---")
+                    st.subheader("🛠️ Debugging: Status Data YFinance")
+                    with st.expander("Buka untuk melihat raw data dari YFinance"):
+                        if not stock_data_dict:
+                            st.error("Gagal total: stock_data_dict kosong. YFinance tidak memberikan data sama sekali.")
+                        else:
+                            debug_info = []
+                            success_tickers = []
+                            for t, df in stock_data_dict.items():
+                                if df is not None and not df.empty:
+                                    success_tickers.append(t)
+                                    last_date = df.index[-1].strftime('%Y-%m-%d') if not df.index.empty else "No Date"
+                                    debug_info.append({"Ticker": t, "Status": "✅ Sukses", "Jumlah Baris": len(df), "Tgl Terakhir": last_date})
+                                else:
+                                    debug_info.append({"Ticker": t, "Status": "❌ Kosong/Gagal", "Jumlah Baris": 0, "Tgl Terakhir": "-"})
+                            
+                            st.write(f"**Berhasil diunduh:** {len(success_tickers)} dari {len(stock_data_dict)} saham.")
+                            st.dataframe(pd.DataFrame(debug_info), use_container_width=True)
+                            
+                            if success_tickers:
+                                sample_ticker = success_tickers[0]
+                                st.write(f"**Contoh Raw Data untuk {sample_ticker} (5 Hari Terakhir):**")
+                                sample_df = stock_data_dict[sample_ticker].tail()
+                                st.dataframe(sample_df, use_container_width=True)
+                                st.write("**Daftar Kolom yang Diterima:**")
+                                st.write(list(sample_df.columns))
+                    # ==================================================
+                    # 🛑 AKHIR KODE DEBUGGING
+                    # ==================================================
+
+                    # Screen stocks - FIX: Menghapus argumen -min_change_pct ganda dan menambahkan koma yang kurang
                     results_df = screen_stocks(
                         stock_data_dict,
                         n_days=n_days,
-                        min_drawdown=-min_drawdown  # Convert to negative
+                        min_change_pct=min_change_pct,
+                        threshold=0.8
+                    )
+                    
+                    # Screen stocks - FIX: Menghapus argumen -min_change_pct ganda dan menambahkan koma yang kurang
+                    results_df = screen_stocks(
+                        stock_data_dict,
+                        n_days=n_days,
+                        min_change_pct=min_change_pct,
+                        threshold=0.8
                     )
                     
                     # Store in session
@@ -362,7 +403,7 @@ def display_screening_results(session_state):
         'Ticker',
         'Harga Sekarang',
         'Harga N Hari Lalu',
-        'Drawdown %',
+        'Perubahan %',
         'Jumlah Hari Turun',
         'Num Days Checked'
     ]
@@ -374,13 +415,13 @@ def display_screening_results(session_state):
     display_df['Harga N Hari Lalu'] = display_df['Harga N Hari Lalu'].apply(
         lambda x: f"Rp {x:,.0f}"
     )
-    display_df['Drawdown %'] = display_df['Drawdown %'].apply(
+    display_df['Perubahan %'] = display_df['Perubahan %'].apply(
         lambda x: f"{x:.2f}%"
     )
     
     # Hide unnecessary columns
     display_cols = ['Ticker', 'Harga Sekarang', 'Harga N Hari Lalu', 
-                     'Drawdown %', 'Jumlah Hari Turun']
+                     'Perubahan %', 'Jumlah Hari Turun']
     
     # Display table
     st.subheader("📊 Hasil Screening")
@@ -410,7 +451,7 @@ def display_screening_results(session_state):
     
     selected_ticker = st.selectbox(
         "Pilih ticker untuk melihat detail:",
-        options=[''] + list(results_df['ticker']),
+        options=[''] + list(results_df['Ticker']),  # Pastikan kolom yang dirujuk benar sesuai format baris 373
         index=0,
         format_func=lambda x: "Pilih saham..." if x == '' else x
     )
@@ -462,7 +503,7 @@ def display_stock_details(ticker: str, session_state):
                 
                 for key, value in stats_display.items():
                     st.metric(key, value)
-    
+                    
     except Exception as e:
         st.error(f"❌ Error loading detail: {str(e)}")
 

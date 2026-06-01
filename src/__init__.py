@@ -5,8 +5,9 @@ StockTrend Dashboard - Source modules
 from .data import get_stock_data, parse_ticker_input, validate_ticker
 from .screener import (
     calculate_returns,
-    is_down_n_days,
-    calculate_drawdown,
+    # is_down_n_days,
+    # calculate_drawdown,
+    is_mostly_down,
     screen_stocks,
 )
 from .utils import (
@@ -22,7 +23,7 @@ __all__ = [
     "parse_ticker_input",
     "validate_ticker",
     "calculate_returns",
-    "is_down_n_days",
+    # "is_down_n_days",
     "calculate_drawdown",
     "screen_stocks",
     "create_price_chart",
